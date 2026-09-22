@@ -3,6 +3,8 @@ name: Bootstrap New Yomy from production source
 on:
   push:
     branches: [ "main" ]
+  issues:
+    types: [opened]
   workflow_dispatch:
 
 permissions:
