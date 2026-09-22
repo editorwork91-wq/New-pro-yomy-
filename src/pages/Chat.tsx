@@ -152,7 +152,15 @@ export default function Chat() {
     if (latestCreatedAt) query = query.gt('created_at', latestCreatedAt)
     const { data, error } = await query
     if (error || !data?.length) return
-    const fresh = await hydrateMessageMedia(hydrateReplyPreviews((data as Message[]).filter(message => !known.has(message.id))))
+    const candidateRows = await hydrateMessageMedia(hydrateReplyPreviews((data as Message[]).filter(message => !known.has(message.id))))
+    if (!candidateRows.length) return
+    const { data: hiddenRows } = await supabase
+      .from('message_user_states')
+      .select('message_id')
+      .eq('user_id', user.id)
+      .in('message_id', candidateRows.map(message => message.id))
+    const hiddenIds = new Set((hiddenRows || []).map(row => String(row.message_id)))
+    const fresh = candidateRows.filter(message => !hiddenIds.has(message.id))
     if (!fresh.length) return
     setMessages(prev => {
       const ids = new Set(prev.map(message => message.id))
