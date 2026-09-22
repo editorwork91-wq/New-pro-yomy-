@@ -1,8 +1,8 @@
 name: Bootstrap New Yomy from production source
 
 on:
-  issues:
-    types: [opened]
+  push:
+    branches: [ "main" ]
   workflow_dispatch:
 
 permissions:
@@ -14,7 +14,6 @@ concurrency:
 
 jobs:
   import:
-    if: github.event_name == 'workflow_dispatch' || github.event.issue.title == 'BOOTSTRAP: import production Yomy baseline'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout target
@@ -22,7 +21,19 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Guard
+        id: guard
+        shell: bash
+        run: |
+          if [ -f .yomy-bootstrap-complete ]; then
+            echo "restore=false" >> "$GITHUB_OUTPUT"
+            echo "Baseline already present; nothing to do."
+          else
+            echo "restore=true" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Import production Yomy source
+        if: steps.guard.outputs.restore == 'true'
         run: |
           set -euo pipefail
           rm -rf /tmp/yomy-source
@@ -30,6 +41,7 @@ jobs:
           rsync -a --exclude '.git/' /tmp/yomy-source/ ./
 
       - name: Preserve bootstrap marker and add recovery metadata
+        if: steps.guard.outputs.restore == 'true'
         run: |
           set -euo pipefail
           cat > .yomy-bootstrap-complete <<'EOF'
@@ -41,6 +53,7 @@ jobs:
           EOF
 
       - name: Commit imported project
+        if: steps.guard.outputs.restore == 'true'
         run: |
           set -euo pipefail
           git config user.name "github-actions[bot]"
