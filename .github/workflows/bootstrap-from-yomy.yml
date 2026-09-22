@@ -16,7 +16,7 @@ concurrency:
 
 jobs:
   import:
-    if: "!hashFiles('.yomy-bootstrap-complete')"
+    if: hashFiles('.yomy-bootstrap-complete') == ''
     runs-on: ubuntu-latest
     steps:
       - name: Checkout target
