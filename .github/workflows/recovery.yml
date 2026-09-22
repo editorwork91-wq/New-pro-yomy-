@@ -1,0 +1,64 @@
+name: Yomy Recovery
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_ref:
+        description: "Source branch/tag/commit to restore from"
+        required: false
+        default: "main"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: yomy-recovery
+  cancel-in-progress: false
+
+jobs:
+  restore:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout target
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Snapshot target before restore
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/yomy-target-snapshot
+          rsync -a --exclude '.git/' --exclude '/.github/workflows/recovery.yml' ./ /tmp/yomy-target-snapshot/
+          tar -czf /tmp/yomy-target-before-restore.tgz -C /tmp yomy-target-snapshot
+
+      - name: Upload pre-restore snapshot
+        uses: actions/upload-artifact@v4
+        with:
+          name: yomy-target-before-restore-${{ github.run_id }}
+          path: /tmp/yomy-target-before-restore.tgz
+          retention-days: 30
+
+      - name: Restore production source
+        env:
+          SOURCE_REF: ${{ inputs.source_ref }}
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/yomy-source
+          git clone --depth 1 --branch "$SOURCE_REF" https://github.com/editorwork91-wq/yomy.git /tmp/yomy-source
+          rsync -a --exclude '.git/' /tmp/yomy-source/ ./
+
+      - name: Re-apply recovery controls
+        run: |
+          set -euo pipefail
+          test -f .github/workflows/recovery.yml
+          test -f docs/RECOVERY.md
+
+      - name: Commit restored baseline
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --quiet && exit 0
+          git commit -m "chore(recovery): restore Yomy from production baseline"
+          git push origin HEAD:main
