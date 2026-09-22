@@ -51,6 +51,7 @@ export default function Chat() {
   const [otherTyping, setOtherTyping] = useState(false)
   const [otherOnline, setOtherOnline] = useState(false)
   const typingTimerRef = useRef<number | null>(null)
+  const realtimeChannelRef = useRef<ReturnType<typeof supabase.channel> | null>(null)
   const recorderRef = useRef<MediaRecorder | null>(null)
   const recordingStreamRef = useRef<MediaStream | null>(null)
   const recordingChunksRef = useRef<Blob[]>([])
@@ -235,6 +236,8 @@ export default function Chat() {
         }
       })
 
+    realtimeChannelRef.current = channel
+
     const onOnline = () => void reconcileMissingMessages()
     const onVisibility = () => { if (document.visibilityState === 'visible') void reconcileMissingMessages() }
     window.addEventListener('online', onOnline)
@@ -247,6 +250,7 @@ export default function Chat() {
       window.removeEventListener('online', onOnline)
       document.removeEventListener('visibilitychange', onVisibility)
       void supabase.removeChannel(channel)
+      if (realtimeChannelRef.current === channel) realtimeChannelRef.current = null
     }
   }, [user, otherUser, fetchMessages, reconcileMissingMessages])
 
@@ -500,10 +504,10 @@ export default function Chat() {
 
       <div className="border-t p-3 pb-safe flex items-center gap-2"><input ref={fileRef} type="file" accept="image/*,video/*,audio/*" className="hidden" onChange={e => { const file = e.target.files?.[0]; if (file) selectMedia(file); e.currentTarget.value = '' }} /><Button variant="ghost" size="icon" className="size-9 shrink-0" onClick={() => fileRef.current?.click()} disabled={uploadingMedia || recording || !!pendingMedia}><ImagePlus className="size-5" /></Button><Button variant="ghost" size="icon" className="size-9 shrink-0" onClick={() => void startRecording()} disabled={uploadingMedia || recording || !!pendingMedia} aria-label="Record voice"><Mic className="size-5" /></Button><Button variant="ghost" size="icon" className={cn('size-9 shrink-0', viewOnceMode && 'text-primary')} onClick={() => setViewOnceMode(value => !value)} disabled={recording || !!pendingMedia}>{viewOnceMode ? <Eye className="size-5" /> : <EyeOff className="size-5" />}</Button><Input placeholder="Message..." value={newMessage} onChange={e => {
           setNewMessage(e.target.value)
-          void channel.send({ type: 'broadcast', event: 'typing', payload: { user_id: user?.id, typing: true } })
+          void realtimeChannelRef.current?.send({ type: 'broadcast', event: 'typing', payload: { user_id: user?.id, typing: true } })
           if (typingTimerRef.current) window.clearTimeout(typingTimerRef.current)
           typingTimerRef.current = window.setTimeout(() => {
-            void channel.send({ type: 'broadcast', event: 'typing', payload: { user_id: user?.id, typing: false } })
+            void realtimeChannelRef.current?.send({ type: 'broadcast', event: 'typing', payload: { user_id: user?.id, typing: false } })
           }, 1200)
         }} disabled={recording || !!pendingMedia} onKeyDown={e => {
           if (e.key === 'Enter' && !e.shiftKey) {
