@@ -512,7 +512,7 @@ export default function Chat() {
         }} disabled={recording || !!pendingMedia} onKeyDown={e => {
           if (e.key === 'Enter' && !e.shiftKey) {
             e.preventDefault()
-            void channel.send({ type: 'broadcast', event: 'typing', payload: { user_id: user?.id, typing: false } })
+            void realtimeChannelRef.current?.send({ type: 'broadcast', event: 'typing', payload: { user_id: user?.id, typing: false } })
             void sendTextMessage()
           }
         }} className="flex-1" /><Button size="icon" className="size-9 shrink-0" disabled={!newMessage.trim() || sending || recording || !!pendingMedia} onClick={() => void sendTextMessage()}>{sending ? <Spinner className="size-4" /> : <Send className="size-4" />}</Button></div>
