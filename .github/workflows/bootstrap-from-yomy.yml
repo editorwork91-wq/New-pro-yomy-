@@ -1,8 +1,6 @@
 name: Bootstrap New Yomy from production source
 
 on:
-  push:
-    branches: [ "main" ]
   issues:
     types: [opened]
   workflow_dispatch:
@@ -16,7 +14,7 @@ concurrency:
 
 jobs:
   import:
-    if: hashFiles('.yomy-bootstrap-complete') == ''
+    if: github.event_name == 'workflow_dispatch' || github.event.issue.title == 'BOOTSTRAP: import production Yomy baseline'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout target
