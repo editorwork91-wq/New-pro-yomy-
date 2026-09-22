@@ -1,0 +1,51 @@
+name: Bootstrap New Yomy from production source
+
+on:
+  push:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: yomy-bootstrap
+  cancel-in-progress: false
+
+jobs:
+  import:
+    if: "!hashFiles('.yomy-bootstrap-complete')"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout target
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Import production Yomy source
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/yomy-source
+          git clone --depth 1 https://github.com/editorwork91-wq/yomy.git /tmp/yomy-source
+          rsync -a --exclude '.git/' /tmp/yomy-source/ ./
+
+      - name: Preserve bootstrap marker and add recovery metadata
+        run: |
+          set -euo pipefail
+          cat > .yomy-bootstrap-complete <<'EOF'
+          Source: editorwork91-wq/yomy
+          Source branch: main
+          Imported by: GitHub Actions
+          Purpose: reproducible production baseline for New-pro-yomy-
+          Safety: source repository main is never modified by this workflow
+          EOF
+
+      - name: Commit imported project
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --quiet && exit 0
+          git commit -m "chore: bootstrap New-pro-yomy from production Yomy"
+          git push origin HEAD:main
