@@ -54,11 +54,22 @@ export default function Messages() {
       .order('created_at', { ascending: false })
       .limit(200)
 
+    const rawMessages = messages || []
+    const hiddenIds = new Set<string>()
+    if (rawMessages.length) {
+      const { data: hiddenRows } = await supabase
+        .from('message_user_states')
+        .select('message_id')
+        .eq('user_id', user.id)
+        .in('message_id', rawMessages.map(msg => msg.id))
+      for (const row of hiddenRows || []) hiddenIds.add(String(row.message_id))
+    }
+
     // Group by conversation partner
     const convMap = new Map<string, Conversation>()
     const unreadMap = new Map<string, number>()
 
-    messages?.forEach(msg => {
+    rawMessages.filter(msg => !hiddenIds.has(String(msg.id))).forEach(msg => {
       const partnerId = msg.sender_id === user.id ? msg.receiver_id : msg.sender_id
       const partner = msg.sender_id === user.id ? msg.receiver : msg.sender
 
