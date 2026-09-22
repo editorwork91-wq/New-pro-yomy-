@@ -265,11 +265,17 @@ export default function Messages() {
                   </p>
                   <p className={`text-sm truncate ${conv.unreadCount > 0 ? 'text-foreground' : 'text-muted-foreground'}`}>
                     {conv.lastMessage?.sender_id === user?.id && 'You: '}
-                    {conv.lastMessage?.view_once && !conv.lastMessage?.view_once_opened
-                      ? '📷 Photo'
-                      : conv.lastMessage?.media_url && !conv.lastMessage?.content
-                        ? conv.lastMessage?.media_type === 'audio' ? '🎤 Voice message' : '📷 Photo'
-                        : conv.lastMessage?.content || ''}
+                    {conv.lastMessage?.deleted_for_everyone
+                      ? 'Message deleted'
+                      : conv.lastMessage?.view_once && !conv.lastMessage?.view_once_opened
+                        ? '🔒 View once media'
+                        : conv.lastMessage?.media_type === 'audio'
+                          ? (conv.lastMessage?.content ? `🎤 ${conv.lastMessage.content}` : '🎤 Voice message')
+                          : conv.lastMessage?.media_type === 'video'
+                            ? (conv.lastMessage?.content ? `🎬 ${conv.lastMessage.content}` : '🎬 Video')
+                            : conv.lastMessage?.media_type === 'image'
+                              ? (conv.lastMessage?.content ? `📷 ${conv.lastMessage.content}` : '📷 Photo')
+                              : conv.lastMessage?.content || ''}
                   </p>
                 </div>
                 <span className="text-xs text-muted-foreground shrink-0">
