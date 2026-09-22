@@ -1,11 +1,34 @@
+import fs from 'node:fs'
+import path from 'node:path'
+
+function loadEnvFile(filePath) {
+  if (!fs.existsSync(filePath)) return {}
+  const result = {}
+  for (const rawLine of fs.readFileSync(filePath, 'utf8').split(/\r?\n/)) {
+    const line = rawLine.trim()
+    if (!line || line.startsWith('#')) continue
+    const match = line.match(/^([A-Za-z_][A-Za-z0-9_]*)=(.*)$/)
+    if (!match) continue
+    let value = match[2].trim()
+    if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
+      value = value.slice(1, -1)
+    }
+    result[match[1]] = value
+  }
+  return result
+}
+
+const fileEnv = loadEnvFile(path.resolve(process.cwd(), '.env'))
+const get = name => process.env[name] || fileEnv[name] || ''
+
 const required = [
-  ['VITE_SUPABASE_URL', process.env.VITE_SUPABASE_URL],
-  ['VITE_SUPABASE_ANON_KEY', process.env.VITE_SUPABASE_ANON_KEY],
+  ['VITE_SUPABASE_URL', get('VITE_SUPABASE_URL')],
+  ['VITE_SUPABASE_ANON_KEY', get('VITE_SUPABASE_ANON_KEY')],
 ]
 
 const optional = [
-  ['VITE_VAPID_PUBLIC_KEY', process.env.VITE_VAPID_PUBLIC_KEY],
-  ['VITE_TURN_URLS', process.env.VITE_TURN_URLS],
+  ['VITE_VAPID_PUBLIC_KEY', get('VITE_VAPID_PUBLIC_KEY')],
+  ['VITE_TURN_URLS', get('VITE_TURN_URLS')],
 ]
 
 const missing = required.filter(([, value]) => !value || value === 'undefined').map(([name]) => name)
@@ -19,8 +42,8 @@ for (const [name, value] of optional) {
 }
 
 try {
-  const url = new URL(process.env.VITE_SUPABASE_URL)
-  if (!url.protocol.startsWith('http') || !url.hostname.endsWith('.supabase.co')) {
+  const url = new URL(get('VITE_SUPABASE_URL'))
+  if (!/^https?:$/.test(url.protocol) || !url.hostname.endsWith('.supabase.co')) {
     throw new Error('VITE_SUPABASE_URL does not look like a Supabase project URL')
   }
 } catch (error) {
