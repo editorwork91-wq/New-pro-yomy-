@@ -62,8 +62,64 @@ jobs:
       - name: Build web app
         run: npm run build
 
-      - name: Install Capacitor Android
-        run: npx cap sync android
+      - name: Prepare Capacitor Android and restore YOMY native bridge
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [ ! -f android/gradlew ]; then
+            rm -rf /tmp/yomy-native-backup
+            mkdir -p /tmp/yomy-native-backup/java /tmp/yomy-native-backup/res
+
+            if [ -d android/app/src/main/java/com/yomy/app ]; then
+              cp -a android/app/src/main/java/com/yomy/app /tmp/yomy-native-backup/java/
+            fi
+            if [ -f android/app/src/main/AndroidManifest.xml ]; then
+              cp android/app/src/main/AndroidManifest.xml /tmp/yomy-native-backup/AndroidManifest.xml
+            fi
+            if [ -f android/app/build.gradle ]; then
+              cp android/app/build.gradle /tmp/yomy-native-backup/app-build.gradle
+            fi
+            if [ -f android/app/google-services.json ]; then
+              cp android/app/google-services.json /tmp/yomy-native-backup/google-services.json
+            fi
+            if [ -f android/app/src/main/res/values/yomy_call_styles.xml ]; then
+              cp android/app/src/main/res/values/yomy_call_styles.xml /tmp/yomy-native-backup/yomy_call_styles.xml
+            fi
+
+            find android/app/src/main/res -type f \( -name 'ic_launcher*' -o -name 'ic_launcher_round*' \) -print0 2>/dev/null |
+              while IFS= read -r -d '' file; do
+                rel="${file#android/app/src/main/res/}"
+                mkdir -p "/tmp/yomy-native-backup/res/$(dirname "$rel")"
+                cp "$file" "/tmp/yomy-native-backup/res/$rel"
+              done
+
+            rm -rf android
+            npx cap add android
+          fi
+
+          npx cap sync android
+
+          if [ -d /tmp/yomy-native-backup/java/com/yomy/app ]; then
+            mkdir -p android/app/src/main/java/com/yomy/app
+            cp -a /tmp/yomy-native-backup/java/com/yomy/app/. android/app/src/main/java/com/yomy/app/
+          fi
+          if [ -f /tmp/yomy-native-backup/AndroidManifest.xml ]; then
+            cp /tmp/yomy-native-backup/AndroidManifest.xml android/app/src/main/AndroidManifest.xml
+          fi
+          if [ -f /tmp/yomy-native-backup/app-build.gradle ]; then
+            cp /tmp/yomy-native-backup/app-build.gradle android/app/build.gradle
+          fi
+          if [ -f /tmp/yomy-native-backup/google-services.json ]; then
+            cp /tmp/yomy-native-backup/google-services.json android/app/google-services.json
+          fi
+          if [ -f /tmp/yomy-native-backup/yomy_call_styles.xml ]; then
+            mkdir -p android/app/src/main/res/values
+            cp /tmp/yomy-native-backup/yomy_call_styles.xml android/app/src/main/res/values/yomy_call_styles.xml
+          fi
+          if [ -d /tmp/yomy-native-backup/res ]; then
+            cp -a /tmp/yomy-native-backup/res/. android/app/src/main/res/
+          fi
 
       - name: Setup JDK 21
         uses: actions/setup-java@v4
