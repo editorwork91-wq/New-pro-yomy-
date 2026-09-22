@@ -119,7 +119,15 @@ export default function Messages() {
         () => fetchConversations()
       )
       .on('postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'messages', filter: `sender_id=eq.${user.id}` },
+        () => fetchConversations()
+      )
+      .on('postgres_changes',
         { event: 'UPDATE', schema: 'public', table: 'messages', filter: `receiver_id=eq.${user.id}` },
+        () => fetchConversations()
+      )
+      .on('postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'messages', filter: `sender_id=eq.${user.id}` },
         () => fetchConversations()
       )
       .subscribe()
