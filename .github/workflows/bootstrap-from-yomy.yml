@@ -1,8 +1,6 @@
 name: Bootstrap New Yomy from production source
 
 on:
-  push:
-    branches: [ "main" ]
   workflow_dispatch:
 
 permissions:
