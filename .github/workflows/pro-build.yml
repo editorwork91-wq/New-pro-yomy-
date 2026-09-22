@@ -69,10 +69,10 @@ jobs:
 
           if [ ! -f android/gradlew ]; then
             rm -rf /tmp/yomy-native-backup
-            mkdir -p /tmp/yomy-native-backup/java /tmp/yomy-native-backup/res
+            mkdir -p /tmp/yomy-native-backup/java/com/yomy /tmp/yomy-native-backup/res
 
             if [ -d android/app/src/main/java/com/yomy/app ]; then
-              cp -a android/app/src/main/java/com/yomy/app /tmp/yomy-native-backup/java/
+              cp -a android/app/src/main/java/com/yomy/app /tmp/yomy-native-backup/java/com/yomy/
             fi
             if [ -f android/app/src/main/AndroidManifest.xml ]; then
               cp android/app/src/main/AndroidManifest.xml /tmp/yomy-native-backup/AndroidManifest.xml
