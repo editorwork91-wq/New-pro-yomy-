@@ -301,7 +301,7 @@ export default function Chat() {
         media_bucket: 'messages-private',
         media_path: path,
         media_type: kind,
-        is_encrypted: true,
+        is_encrypted: false,
         view_once: viewOnceMode,
         reply_to_id: replyTo?.id || null,
       }).select('id, created_at').single()
@@ -309,7 +309,7 @@ export default function Chat() {
       if (insertedMessage) {
         setMessages(prev => prev.some(m => m.id === insertedMessage.id) ? prev : [...prev, {
           id: insertedMessage.id, sender_id: user.id, receiver_id: otherUser.id, content: newMessage.trim(), media_url: '', media_bucket: 'messages-private', media_path: path, media_type: kind,
-          is_seen: false, is_encrypted: true, view_once: viewOnceMode, view_once_opened: false, deleted_at: null, deleted_for_everyone: false,
+          is_seen: false, is_encrypted: false, view_once: viewOnceMode, view_once_opened: false, deleted_at: null, deleted_for_everyone: false,
           reply_to_id: replyTo?.id || null, edited_at: null, is_request: false, request_accepted: false, created_at: insertedMessage.created_at, reply_to: replyTo || undefined,
         } as Message])
         void sendPushEvent({ type: 'message', targetUserId: otherUser.id, title: `Message from ${user.user_metadata?.username || 'Yomy'}`, body: kind === 'audio' ? '🎙️ Voice message' : kind === 'video' ? '🎬 Video message' : '📷 Photo', data: { message_id: insertedMessage.id, url: `/messages/${otherUser.username}` } })
@@ -329,11 +329,11 @@ export default function Chat() {
     if (!user || !otherUser || !newMessage.trim() || sending || recording) return
     setSending(true)
     try {
-      const { data: insertedMessage, error } = await supabase.from('messages').insert({ sender_id: user.id, receiver_id: otherUser.id, content: newMessage.trim(), media_url: '', media_type: '', is_encrypted: true, view_once: false, reply_to_id: replyTo?.id || null }).select('id, created_at').single()
+      const { data: insertedMessage, error } = await supabase.from('messages').insert({ sender_id: user.id, receiver_id: otherUser.id, content: newMessage.trim(), media_url: '', media_type: '', is_encrypted: false, view_once: false, reply_to_id: replyTo?.id || null }).select('id, created_at').single()
       if (error) throw error
       if (insertedMessage) {
         setMessages(prev => prev.some(m => m.id === insertedMessage.id) ? prev : [...prev, {
-          id: insertedMessage.id, sender_id: user.id, receiver_id: otherUser.id, content: newMessage.trim(), media_url: '', media_type: '', is_seen: false, is_encrypted: true,
+          id: insertedMessage.id, sender_id: user.id, receiver_id: otherUser.id, content: newMessage.trim(), media_url: '', media_type: '', is_seen: false, is_encrypted: false,
           view_once: false, view_once_opened: false, deleted_at: null, deleted_for_everyone: false, reply_to_id: replyTo?.id || null, edited_at: null, is_request: false, request_accepted: false, created_at: insertedMessage.created_at, reply_to: replyTo || undefined,
         } as Message])
         void sendPushEvent({ type: 'message', targetUserId: otherUser.id, title: `Message from ${user.user_metadata?.username || 'Yomy'}`, body: newMessage.trim(), data: { message_id: insertedMessage.id, url: `/messages/${otherUser.username}` } })
@@ -441,7 +441,7 @@ export default function Chat() {
     <div className="flex flex-col h-screen">
       <TopBar title="" showBack right={<div className="flex items-center gap-1"><Button variant="ghost" size="icon" className="size-9" onClick={() => void startCall(otherUser, 'voice')} aria-label="Voice call"><Phone className="size-5" /></Button><Button variant="ghost" size="icon" className="size-9" onClick={() => void startCall(otherUser, 'video')} aria-label="Video call"><Video className="size-5" /></Button><DropdownMenu><DropdownMenuTrigger asChild><Button variant="ghost" size="icon" className="size-9"><MoreVertical className="size-5" /></Button></DropdownMenuTrigger><DropdownMenuContent align="end"><DropdownMenuItem onClick={() => void toggleMute()}><Volume2 className="size-4 mr-2" />{isMuted ? 'Unmute' : 'Mute'} notifications</DropdownMenuItem><DropdownMenuItem onClick={() => void clearChat()}><Trash2 className="size-4 mr-2" />Clear chat</DropdownMenuItem><DropdownMenuSeparator /><DropdownMenuItem onClick={() => void blockUser()} className="text-destructive focus:text-destructive"><Ban className="size-4 mr-2" />Block user</DropdownMenuItem></DropdownMenuContent></DropdownMenu></div>} />
 
-      <Link to={`/profile/${otherUser.username}`} className="flex items-center gap-3 px-4 py-2 border-b hover:bg-accent/30"><Avatar className="size-10"><AvatarImage src={otherUser.avatar_url} /><AvatarFallback>{otherUser.username[0]?.toUpperCase()}</AvatarFallback></Avatar><div className="flex-1 min-w-0"><div className="flex items-center gap-1"><p className="text-sm font-semibold">{otherUser.username}</p>{otherUser.is_verified && <svg className="size-3 text-blue-500 fill-current" viewBox="0 0 24 24"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41L9 19 21 7l-1.41-1.41L9 16.17z"/></svg>}</div><p className="text-xs text-muted-foreground">{otherUser.full_name || 'Active now'}</p></div><div className="flex items-center gap-1 text-xs text-muted-foreground"><Lock className="size-3" /><span>Encrypted</span></div></Link>
+      <Link to={`/profile/${otherUser.username}`} className="flex items-center gap-3 px-4 py-2 border-b hover:bg-accent/30"><Avatar className="size-10"><AvatarImage src={otherUser.avatar_url} /><AvatarFallback>{otherUser.username[0]?.toUpperCase()}</AvatarFallback></Avatar><div className="flex-1 min-w-0"><div className="flex items-center gap-1"><p className="text-sm font-semibold">{otherUser.username}</p>{otherUser.is_verified && <svg className="size-3 text-blue-500 fill-current" viewBox="0 0 24 24"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41L9 19 21 7l-1.41-1.41L9 16.17z"/></svg>}</div><p className="text-xs text-muted-foreground">{otherUser.full_name || 'Active now'}</p></div><div className="flex items-center gap-1 text-xs text-muted-foreground"><Lock className="size-3" /><span>Protected connection</span></div></Link>
 
       <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-4 space-y-2">
         {messages.length === 0 ? <div className="flex flex-col items-center justify-center h-full gap-3 text-center"><Avatar className="size-20"><AvatarImage src={otherUser.avatar_url} /><AvatarFallback className="text-2xl">{otherUser.username[0]?.toUpperCase()}</AvatarFallback></Avatar><div><p className="font-semibold">{otherUser.username}</p><p className="text-sm text-muted-foreground">{otherUser.full_name || ''}</p></div><Button size="sm" onClick={() => setNewMessage('Hi! 👋')}>Say hello</Button></div> : messages.map((msg, idx) => {
