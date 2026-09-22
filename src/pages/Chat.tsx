@@ -48,6 +48,9 @@ export default function Chat() {
   const [recording, setRecording] = useState(false)
   const [recordingSeconds, setRecordingSeconds] = useState(0)
   const [pendingMedia, setPendingMedia] = useState<PendingMedia | null>(null)
+  const [otherTyping, setOtherTyping] = useState(false)
+  const [otherOnline, setOtherOnline] = useState(false)
+  const typingTimerRef = useRef<number | null>(null)
   const recorderRef = useRef<MediaRecorder | null>(null)
   const recordingStreamRef = useRef<MediaStream | null>(null)
   const recordingChunksRef = useRef<Blob[]>([])
@@ -183,11 +186,31 @@ export default function Chat() {
     if (recorderRef.current?.state === 'recording') recorderRef.current.stop()
     recordingStreamRef.current?.getTracks().forEach(track => track.stop())
     if (pendingMedia) URL.revokeObjectURL(pendingMedia.previewUrl)
+    if (typingTimerRef.current) window.clearTimeout(typingTimerRef.current)
   }, [pendingMedia])
 
   useEffect(() => {
     if (!user || !otherUser) return
-    const channel = supabase.channel(`chat-${user.id}-${otherUser.id}`)
+    const channel = supabase.channel(`chat-${user.id}-${otherUser.id}`, {
+      config: { presence: { key: user.id }, broadcast: { self: false } },
+    })
+      .on('broadcast', { event: 'typing' }, payload => {
+        if (payload.payload?.user_id !== otherUser.id) return
+        const typing = payload.payload?.typing === true
+        setOtherTyping(typing)
+        if (typingTimerRef.current) window.clearTimeout(typingTimerRef.current)
+        if (typing) typingTimerRef.current = window.setTimeout(() => setOtherTyping(false), 1800)
+      })
+      .on('presence', { event: 'sync' }, () => {
+        const state = channel.presenceState<Record<string, { user_id?: string }>>()
+        setOtherOnline(Object.values(state).flat().some(entry => entry.user_id === otherUser.id))
+      })
+      .on('presence', { event: 'join' }, ({ key }) => {
+        if (key === otherUser.id) setOtherOnline(true)
+      })
+      .on('presence', { event: 'leave' }, ({ key }) => {
+        if (key === otherUser.id) setOtherOnline(false)
+      })
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages', filter: `sender_id=eq.${otherUser.id}` }, async payload => {
         if (payload.new.receiver_id !== user.id) return
         const newMsg = payload.new as Message
@@ -203,8 +226,13 @@ export default function Chat() {
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'messages', filter: `sender_id=eq.${user.id}` }, () => void fetchMessages(false))
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'message_reactions' }, () => void fetchMessages(false))
       .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'message_reactions' }, () => void fetchMessages(false))
-      .subscribe(status => {
-        if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') console.warn('Chat realtime degraded; reconciliation fallback active')
+      .subscribe(async status => {
+        if (status === 'SUBSCRIBED') {
+          await channel.track({ user_id: user.id, online_at: new Date().toISOString() })
+        }
+        if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
+          console.warn('Chat realtime degraded; reconciliation fallback active')
+        }
       })
 
     const onOnline = () => void reconcileMissingMessages()
@@ -449,7 +477,7 @@ export default function Chat() {
     <div className="flex flex-col h-screen">
       <TopBar title="" showBack right={<div className="flex items-center gap-1"><Button variant="ghost" size="icon" className="size-9" onClick={() => void startCall(otherUser, 'voice')} aria-label="Voice call"><Phone className="size-5" /></Button><Button variant="ghost" size="icon" className="size-9" onClick={() => void startCall(otherUser, 'video')} aria-label="Video call"><Video className="size-5" /></Button><DropdownMenu><DropdownMenuTrigger asChild><Button variant="ghost" size="icon" className="size-9"><MoreVertical className="size-5" /></Button></DropdownMenuTrigger><DropdownMenuContent align="end"><DropdownMenuItem onClick={() => void toggleMute()}><Volume2 className="size-4 mr-2" />{isMuted ? 'Unmute' : 'Mute'} notifications</DropdownMenuItem><DropdownMenuItem onClick={() => void clearChat()}><Trash2 className="size-4 mr-2" />Clear chat</DropdownMenuItem><DropdownMenuSeparator /><DropdownMenuItem onClick={() => void blockUser()} className="text-destructive focus:text-destructive"><Ban className="size-4 mr-2" />Block user</DropdownMenuItem></DropdownMenuContent></DropdownMenu></div>} />
 
-      <Link to={`/profile/${otherUser.username}`} className="flex items-center gap-3 px-4 py-2 border-b hover:bg-accent/30"><Avatar className="size-10"><AvatarImage src={otherUser.avatar_url} /><AvatarFallback>{otherUser.username[0]?.toUpperCase()}</AvatarFallback></Avatar><div className="flex-1 min-w-0"><div className="flex items-center gap-1"><p className="text-sm font-semibold">{otherUser.username}</p>{otherUser.is_verified && <svg className="size-3 text-blue-500 fill-current" viewBox="0 0 24 24"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41L9 19 21 7l-1.41-1.41L9 16.17z"/></svg>}</div><p className="text-xs text-muted-foreground">{otherUser.full_name || 'Active now'}</p></div><div className="flex items-center gap-1 text-xs text-muted-foreground"><Lock className="size-3" /><span>Protected connection</span></div></Link>
+      <Link to={`/profile/${otherUser.username}`} className="flex items-center gap-3 px-4 py-2 border-b hover:bg-accent/30"><Avatar className="size-10"><AvatarImage src={otherUser.avatar_url} /><AvatarFallback>{otherUser.username[0]?.toUpperCase()}</AvatarFallback></Avatar><div className="flex-1 min-w-0"><div className="flex items-center gap-1"><p className="text-sm font-semibold">{otherUser.username}</p>{otherUser.is_verified && <svg className="size-3 text-blue-500 fill-current" viewBox="0 0 24 24"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41L9 19 21 7l-1.41-1.41L9 16.17z"/></svg>}</div><p className="text-xs text-muted-foreground">{otherTyping ? 'typing…' : otherOnline ? 'Active now' : otherUser.last_seen_at ? `Last seen ${format(new Date(otherUser.last_seen_at), 'MMM d, h:mm a')}` : otherUser.full_name || 'Offline'}</p></div><div className="flex items-center gap-1 text-xs text-muted-foreground"><Lock className="size-3" /><span>Protected connection</span></div></Link>
 
       <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-4 space-y-2">
         {messages.length === 0 ? <div className="flex flex-col items-center justify-center h-full gap-3 text-center"><Avatar className="size-20"><AvatarImage src={otherUser.avatar_url} /><AvatarFallback className="text-2xl">{otherUser.username[0]?.toUpperCase()}</AvatarFallback></Avatar><div><p className="font-semibold">{otherUser.username}</p><p className="text-sm text-muted-foreground">{otherUser.full_name || ''}</p></div><Button size="sm" onClick={() => setNewMessage('Hi! 👋')}>Say hello</Button></div> : messages.map((msg, idx) => {
@@ -470,7 +498,20 @@ export default function Chat() {
 
       {!recording && pendingMedia && <div className="border-t bg-card px-4 pt-3 pb-2"><div className="rounded-2xl border bg-muted/30 p-3"><div className="flex items-start gap-3"><div className="flex-1 min-w-0">{pendingMedia.kind === 'image' && <img src={pendingMedia.previewUrl} alt="Preview" className="rounded-xl max-h-64 max-w-full object-contain mx-auto" />}{pendingMedia.kind === 'video' && <video src={pendingMedia.previewUrl} controls playsInline className="rounded-xl max-h-64 max-w-full mx-auto" />}{pendingMedia.kind === 'audio' && <div className="flex items-center gap-3"><div className="size-11 rounded-full bg-primary/10 flex items-center justify-center"><Mic className="size-5" /></div><div className="flex-1"><p className="text-sm font-medium">Voice message</p><audio src={pendingMedia.previewUrl} controls className="w-full h-9 mt-1" /></div></div>}</div><Button variant="ghost" size="icon" onClick={clearPendingMedia} disabled={uploadingMedia}><X className="size-5" /></Button></div><div className="mt-3 flex items-center gap-2"><Button variant="ghost" size="sm" className={cn(viewOnceMode && 'text-primary')} onClick={() => setViewOnceMode(value => !value)}>{viewOnceMode ? <Eye className="size-4 mr-1" /> : <EyeOff className="size-4 mr-1" />}{viewOnceMode ? 'View once' : 'Keep in chat'}</Button><div className="flex-1" /><Button size="sm" onClick={() => void uploadAndSendPendingMedia()} disabled={uploadingMedia}>{uploadingMedia ? <Spinner className="size-4 mr-2" /> : <Send className="size-4 mr-2" />}{uploadingMedia ? 'Sending…' : 'Send'}</Button></div></div></div>}
 
-      <div className="border-t p-3 pb-safe flex items-center gap-2"><input ref={fileRef} type="file" accept="image/*,video/*,audio/*" className="hidden" onChange={e => { const file = e.target.files?.[0]; if (file) selectMedia(file); e.currentTarget.value = '' }} /><Button variant="ghost" size="icon" className="size-9 shrink-0" onClick={() => fileRef.current?.click()} disabled={uploadingMedia || recording || !!pendingMedia}><ImagePlus className="size-5" /></Button><Button variant="ghost" size="icon" className="size-9 shrink-0" onClick={() => void startRecording()} disabled={uploadingMedia || recording || !!pendingMedia} aria-label="Record voice"><Mic className="size-5" /></Button><Button variant="ghost" size="icon" className={cn('size-9 shrink-0', viewOnceMode && 'text-primary')} onClick={() => setViewOnceMode(value => !value)} disabled={recording || !!pendingMedia}>{viewOnceMode ? <Eye className="size-5" /> : <EyeOff className="size-5" />}</Button><Input placeholder="Message..." value={newMessage} onChange={e => setNewMessage(e.target.value)} disabled={recording || !!pendingMedia} onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void sendTextMessage() } }} className="flex-1" /><Button size="icon" className="size-9 shrink-0" disabled={!newMessage.trim() || sending || recording || !!pendingMedia} onClick={() => void sendTextMessage()}>{sending ? <Spinner className="size-4" /> : <Send className="size-4" />}</Button></div>
+      <div className="border-t p-3 pb-safe flex items-center gap-2"><input ref={fileRef} type="file" accept="image/*,video/*,audio/*" className="hidden" onChange={e => { const file = e.target.files?.[0]; if (file) selectMedia(file); e.currentTarget.value = '' }} /><Button variant="ghost" size="icon" className="size-9 shrink-0" onClick={() => fileRef.current?.click()} disabled={uploadingMedia || recording || !!pendingMedia}><ImagePlus className="size-5" /></Button><Button variant="ghost" size="icon" className="size-9 shrink-0" onClick={() => void startRecording()} disabled={uploadingMedia || recording || !!pendingMedia} aria-label="Record voice"><Mic className="size-5" /></Button><Button variant="ghost" size="icon" className={cn('size-9 shrink-0', viewOnceMode && 'text-primary')} onClick={() => setViewOnceMode(value => !value)} disabled={recording || !!pendingMedia}>{viewOnceMode ? <Eye className="size-5" /> : <EyeOff className="size-5" />}</Button><Input placeholder="Message..." value={newMessage} onChange={e => {
+          setNewMessage(e.target.value)
+          void channel.send({ type: 'broadcast', event: 'typing', payload: { user_id: user?.id, typing: true } })
+          if (typingTimerRef.current) window.clearTimeout(typingTimerRef.current)
+          typingTimerRef.current = window.setTimeout(() => {
+            void channel.send({ type: 'broadcast', event: 'typing', payload: { user_id: user?.id, typing: false } })
+          }, 1200)
+        }} disabled={recording || !!pendingMedia} onKeyDown={e => {
+          if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault()
+            void channel.send({ type: 'broadcast', event: 'typing', payload: { user_id: user?.id, typing: false } })
+            void sendTextMessage()
+          }
+        }} className="flex-1" /><Button size="icon" className="size-9 shrink-0" disabled={!newMessage.trim() || sending || recording || !!pendingMedia} onClick={() => void sendTextMessage()}>{sending ? <Spinner className="size-4" /> : <Send className="size-4" />}</Button></div>
 
       {showViewOnce && <div className="fixed inset-0 z-50 bg-black flex items-center justify-center" onClick={() => setShowViewOnce(null)}><img src={showViewOnce} alt="" className="max-w-full max-h-full object-contain" /><Button variant="ghost" className="absolute top-4 right-4 text-white" size="icon" onClick={() => setShowViewOnce(null)}><X className="size-6" /></Button></div>}
     </div>
