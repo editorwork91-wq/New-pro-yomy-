@@ -80,6 +80,26 @@ export default function Chat() {
     return rows.map(row => ({ ...row, reply_to: row.reply_to_id ? byId.get(row.reply_to_id) : undefined }))
   }, [])
 
+  const hydrateMessageMedia = useCallback(async (rows: Message[]) => {
+    const resolved = await Promise.all(rows.map(async row => {
+      if (row.media_bucket !== 'messages-private' || !row.media_path || row.deleted_for_everyone) return row
+      try {
+        const { data, error } = await supabase.functions.invoke('message-media-url', {
+          body: { message_id: row.id, expires_in: 3600 },
+        })
+        if (!error && data?.url) {
+          return {
+            ...row,
+            media_url: String(data.url),
+            media_url_expires_at: typeof data.expires_at === 'string' ? data.expires_at : null,
+          }
+        }
+      } catch {}
+      return row
+    }))
+    return resolved
+  }, [])
+
   const fetchMessages = useCallback(async (showLoader = true) => {
     if (!user || !otherUser) return
     if (showLoader) setLoading(true)
@@ -95,17 +115,27 @@ export default function Chat() {
       if (showLoader) setLoading(false)
       return toast.error(`تعذر تحميل الرسائل: ${error.message}`)
     }
-    const hydrated = hydrateReplyPreviews((data || []) as Message[])
-    setMessages(hydrated)
+    const hydrated = await hydrateMessageMedia(hydrateReplyPreviews((data || []) as Message[]))
+    const hiddenIds = new Set<string>()
+    if (hydrated.length) {
+      const { data: hiddenRows } = await supabase
+        .from('message_user_states')
+        .select('message_id')
+        .eq('user_id', user.id)
+        .in('message_id', hydrated.map(message => message.id))
+      for (const row of hiddenRows || []) hiddenIds.add(String(row.message_id))
+    }
+    const visibleMessages = hydrated.filter(message => !hiddenIds.has(message.id))
+    setMessages(visibleMessages)
     if (showLoader) setLoading(false)
-    const unseen = hydrated.filter(m => m.receiver_id === user.id && !m.is_seen && !m.deleted_for_everyone)
+    const unseen = visibleMessages.filter(m => m.receiver_id === user.id && !m.is_seen && !m.deleted_for_everyone)
     if (unseen.length) {
       const { error: seenError } = await supabase.rpc('mark_messages_seen', { p_other_user_id: otherUser.id })
       if (seenError) console.error('mark_messages_seen failed:', seenError.message)
     }
     const { data: muted } = await supabase.from('muted_chats').select('id').eq('user_id', user.id).eq('muted_user_id', otherUser.id).maybeSingle()
     setIsMuted(!!muted)
-  }, [user, otherUser, hydrateReplyPreviews])
+  }, [user, otherUser, hydrateMessageMedia, hydrateReplyPreviews])
 
   const reconcileMissingMessages = useCallback(async () => {
     if (!user || !otherUser) return
@@ -122,7 +152,7 @@ export default function Chat() {
     if (latestCreatedAt) query = query.gt('created_at', latestCreatedAt)
     const { data, error } = await query
     if (error || !data?.length) return
-    const fresh = hydrateReplyPreviews((data as Message[]).filter(message => !known.has(message.id)))
+    const fresh = await hydrateMessageMedia(hydrateReplyPreviews((data as Message[]).filter(message => !known.has(message.id))))
     if (!fresh.length) return
     setMessages(prev => {
       const ids = new Set(prev.map(message => message.id))
@@ -134,7 +164,7 @@ export default function Chat() {
       const { error: seenError } = await supabase.rpc('mark_messages_seen', { p_other_user_id: otherUser.id })
       if (seenError) console.warn('message reconciliation seen update failed:', seenError.message)
     }
-  }, [hydrateReplyPreviews, otherUser, user])
+  }, [hydrateMessageMedia, hydrateReplyPreviews, otherUser, user])
 
   useEffect(() => { void fetchOtherUser() }, [fetchOtherUser])
   useEffect(() => { if (otherUser) void fetchMessages() }, [otherUser, fetchMessages])
@@ -155,7 +185,8 @@ export default function Chat() {
         const newMsg = payload.new as Message
         const { data, error } = await supabase.from('messages').select('*, message_reactions(id, user_id, emoji)').eq('id', newMsg.id).single()
         if (!error && data) {
-          setMessages(prev => prev.some(m => m.id === data.id) ? prev : [...prev, { ...(data as Message), reply_to: (data as Message).reply_to_id ? prev.find(m => m.id === (data as Message).reply_to_id) : undefined }])
+          const [resolved] = await hydrateMessageMedia([data as Message])
+        setMessages(prev => prev.some(m => m.id === resolved.id) ? prev : [...prev, { ...resolved, reply_to: resolved.reply_to_id ? prev.find(m => m.id === resolved.reply_to_id) : undefined }])
         }
         const { error: seenError } = await supabase.rpc('mark_messages_seen', { p_other_user_id: otherUser.id })
         if (seenError) console.error('mark_messages_seen realtime failed:', seenError.message)
@@ -260,14 +291,15 @@ export default function Chat() {
       const folder = kind === 'audio' ? 'audio' : kind === 'video' ? 'videos' : 'images'
       const extension = file.name.split('.').pop() || (kind === 'audio' ? 'webm' : kind === 'video' ? 'mp4' : 'jpg')
       const path = `${folder}/${user.id}/${crypto.randomUUID()}.${extension}`
-      const { error: uploadError } = await supabase.storage.from('messages').upload(path, file, { upsert: false, contentType: file.type || undefined })
+      const { error: uploadError } = await supabase.storage.from('messages-private').upload(path, file, { upsert: false, contentType: file.type || undefined })
       if (uploadError) throw uploadError
-      const { data: publicData } = supabase.storage.from('messages').getPublicUrl(path)
       const { data: insertedMessage, error } = await supabase.from('messages').insert({
         sender_id: user.id,
         receiver_id: otherUser.id,
         content: newMessage.trim(),
-        media_url: publicData.publicUrl,
+        media_url: '',
+        media_bucket: 'messages-private',
+        media_path: path,
         media_type: kind,
         is_encrypted: true,
         view_once: viewOnceMode,
@@ -276,7 +308,7 @@ export default function Chat() {
       if (error) throw error
       if (insertedMessage) {
         setMessages(prev => prev.some(m => m.id === insertedMessage.id) ? prev : [...prev, {
-          id: insertedMessage.id, sender_id: user.id, receiver_id: otherUser.id, content: newMessage.trim(), media_url: publicData.publicUrl, media_type: kind,
+          id: insertedMessage.id, sender_id: user.id, receiver_id: otherUser.id, content: newMessage.trim(), media_url: '', media_bucket: 'messages-private', media_path: path, media_type: kind,
           is_seen: false, is_encrypted: true, view_once: viewOnceMode, view_once_opened: false, deleted_at: null, deleted_for_everyone: false,
           reply_to_id: replyTo?.id || null, edited_at: null, is_request: false, request_accepted: false, created_at: insertedMessage.created_at, reply_to: replyTo || undefined,
         } as Message])
@@ -327,7 +359,7 @@ export default function Chat() {
 
   const deleteForMe = async (messageId: string) => {
     if (!user) return
-    const { error } = await supabase.from('messages').update({ deleted_at: new Date().toISOString() }).eq('id', messageId).eq('sender_id', user.id)
+    const { error } = await supabase.from('message_user_states').upsert({ message_id: messageId, user_id: user.id, hidden_at: new Date().toISOString() }, { onConflict: 'message_id,user_id' })
     if (error) return toast.error(error.message)
     setMessages(prev => prev.filter(m => m.id !== messageId))
     setShowLongPressMenu(null)
